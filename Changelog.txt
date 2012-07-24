@@ -1,0 +1,11 @@
+﻿v0.1.7
+	- Bugfix: Untagged lines already added to output
+	- inner/outer roles disabled
+v0.1.2
+	- Performance improvement
+	- Save roles from old relations
+	- add FIXME tag for unchecked relations
+v0.1.1 Minor bug fix:
+	- 1 node ways filtered
+=================================
+v0.1 First Relase
