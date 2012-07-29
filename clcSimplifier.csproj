@@ -34,6 +34,9 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="Logging">
+      <HintPath>..\..\..\..\Visual Studio 2010\Projects\Libraries\DLLs\Logging.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
@@ -82,10 +85,6 @@
     <Content Include="Changelog.txt" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\..\Visual Studio 2010\Projects\Libraries\Logging\Logging\Logging.csproj">
-      <Project>{A5A5577C-AD34-4110-88C7-41A2DB1DBF2D}</Project>
-      <Name>Logging</Name>
-    </ProjectReference>
     <ProjectReference Include="..\..\GraphTools\GraphTools\GraphTools.csproj">
       <Project>{44814ABC-0397-477A-BD7B-BB88BEBD9439}</Project>
       <Name>GraphTools</Name>

@@ -1,4 +1,6 @@
-﻿v0.1.7
+﻿v0.1.8
+	- Bugfix: inner/outer roles corrected
+v0.1.7
 	- Bugfix: Untagged lines already added to output
 	- inner/outer roles disabled
 v0.1.2

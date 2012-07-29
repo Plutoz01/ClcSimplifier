@@ -38,8 +38,7 @@ namespace clcSimplifier
                 outputFile = value;
                 outputFileBox.Text = value;
             }
-        }
-        
+        }        
 
         public Form1()
         {
@@ -122,6 +121,7 @@ namespace clcSimplifier
 
             Log.getInstance().writeLine("Writing output...");
             startTime = DateTime.Now;
+
             OSMFileHandler.WriteFile(outputFile, nodes, newWays, newRelations, rootAttributes: rootAttributes);
             endTime = DateTime.Now;
             workTime = endTime.Subtract(startTime);
@@ -133,25 +133,6 @@ namespace clcSimplifier
         {
             startButton.Enabled = true;
             logBox.AppendText("Job done.");
-        }
-
-      /**-private void WriteToLog(String message)
-        {
-            if (logBox.InvokeRequired)
-                logBox.Invoke(new MethodInvoker(delegate { logBox.AppendText(message); }));
-            else logBox.AppendText(message);
-        }*/
-
-        private void button1_Click(object sender, EventArgs e)
-        {
-            Random rnd = new Random();
-            Int64 sum = 0;
-            for (int i = 0; i < 10000000; i++)
-            {
-                Node node = new Node(rnd.Next(100000), rnd.Next(100000) / 1000, rnd.Next(100000) / 1000);
-                sum += node.GetHashCode();
-            }
-            MessageBox.Show(sum.ToString());
         }
     }
 }

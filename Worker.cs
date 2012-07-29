@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using GraphTools;
 using GraphTools.OSM;
 using Logging;
@@ -13,142 +12,141 @@ namespace clcSimplifier
     {
         public static void DoWork(IEnumerable<OSMWay> ways, IEnumerable<OSMRelation> relations,
             out  ICollection<OSMWay> newWays, out ICollection<OSMRelation> newRelations)
-        {            
+        {
+            ParallelOptions parallelOptions = new ParallelOptions();
+            parallelOptions.MaxDegreeOfParallelism = Environment.ProcessorCount;
+
              //collect relations
-            newRelations = GetRelations(ways);
-            //adding fixme tags for new relations
-            foreach (var w in newRelations)
+            var waysById = ways.ToDictionary(x => x.ID);
+
+            //collect data for relations already have from ways
+            foreach (var rel in relations)
+            {
+                if (rel.Tags.ContainsKey("CLC:id")) continue;
+                foreach (var member in rel.Members)
+                {
+                    OSMWay w;
+                    if(waysById.TryGetValue(member.Reference,out w)){
+                        if(w.Tags.ContainsKey("CLC:id")){
+                            rel.Tags = new Dictionary<string, string>(w.Tags);
+                            break;
+                        }
+                    }
+                }
+            }
+            waysById = null;
+
+            var allRelationsById = relations.ToDictionary(x => x.Tags["CLC:id"]);
+            foreach (var rel in GetRelations(ways))
+            {
+                string clcId = rel.Tags["CLC:id"];
+                if (!allRelationsById.ContainsKey(clcId)) allRelationsById.Add(clcId, rel);
+            }
+            Log.getInstance().writeLine("Collecting relations: complete");
+            //adding fixme and type=multipolygon tags for new relations
+            foreach (var w in allRelationsById.Values)
             {
                 w.Tags.Add(OSMKeys.Fixme, "unchecked");
+                if (!w.Tags.ContainsKey(OSMKeys.Type)) w.Tags.Add(OSMKeys.Type, "multipolygon");
             }
 
-            
-            
-            //Bad solution, unknown relation properties will be added to new relations
-
-            /*Dictionary<int,OSMWay> tmpDict= ways.ToDictionary(x=>x.ID);
-            foreach (var r in relations)
+            //adding ways to relations
+            foreach (var way in ways)
             {
-                foreach (var m in r.Members)
+                string clcID;
+                //remove tags
+                if (way.Tags.TryGetValue("CLC:id", out clcID))
                 {
-                    tmpDict[m.Reference].Tags.Add(OSMKeys.Role, m.Role);
+                    way.Tags.Clear();
                 }
-            } */           
+                else continue;
+                //add to relation if it doesnt' contains yet
+                var parentRelation = allRelationsById[clcID];
+                bool isContains = false;
+                foreach (var m in parentRelation.Members)
+                {
+                    if (m.Reference == way.ID)
+                    {
+                        isContains = true;
+                        break;
+                    }
+                }
+                if (!isContains)
+                {
+                    parentRelation.Members.Add(new OSMRelation.Member(OSMKeys.WayType,way.ID,"outer"));
+                }
+            }
+            Log.getInstance().writeLine("Adding ways to relations: complete");
 
-            //remove duplicates
-            DateTime startTime, endTime;
-            TimeSpan workTime;
-
-            startTime = DateTime.Now;
+            //create index of relations by used ways
+            Dictionary<int, List<OSMRelation>> relationsByUsedWays = GetRelationsByUsedWays(allRelationsById.Values,ways);  
 
             var intersections = OSMWay.GetIntersections(ways);
-            //var filtered = OSMWay.DistinctSplit(OSMWay.GetIntersections(ways), ways);
             var splittedWays = new List<OSMWay>();
-            Parallel.ForEach(ways, currentWay =>
+            foreach (var currentWay in ways)
+            //Parallel.ForEach(ways, parallelOptions, currentWay =>
             {
                 var partialWays = currentWay.SplitN(intersections);
                 lock (splittedWays)
                 {
                     splittedWays.AddRange(partialWays);
                 }
-            });
-
-
+                //add partial ways to original way's relations
+                var affectedRelations = relationsByUsedWays[currentWay.ID];
+                foreach (var rel in affectedRelations)
+                {
+                    lock (rel.Members)
+                    {
+                        OSMRelation.Member oldMember = rel.Members.Where(x => x.Reference == currentWay.ID).First();
+                        //add new partial ways
+                        foreach (var newWay in partialWays)
+                        {
+                            rel.Members.Add(new OSMRelation.Member(oldMember.Type, newWay.ID, oldMember.Role));
+                        }
+                        //remove old way
+                        rel.Members.Remove(oldMember);
+                    }
+                }
+                //});            
+            }
             intersections = null;
+            Log.getInstance().writeLine("Way splitting: complete");
+
+            //reindex because of earlier change (ways=>partial ways)
+            relationsByUsedWays = GetRelationsByUsedWays(allRelationsById.Values,splittedWays);
 
             OverlapsEqualityComparer comparer = new OverlapsEqualityComparer();
-            var filtered = new Dictionary<OSMWay, List<Dictionary<string,string>>>(comparer);
 
-            string CLCid;
-            string role;
-
-            List<OSMWay> withoutTags = new List<OSMWay>();
-            foreach (var sp in splittedWays)
+            var filtered = new Dictionary<OSMWay, int>(comparer);
+            var unneccesaryWays = new HashSet<OSMWay>();
+            foreach (var way in splittedWays)
             {
-                if (!sp.Tags.ContainsKey("CLC:id")) withoutTags.Add(sp);
-            }
-            Log.getInstance().writeLine("Warning! There are "+withoutTags.Count+" ways without CLC:id");
-            withoutTags.Clear();
-
-            foreach (var sp in splittedWays)
-            {
-                if (sp.Tags.TryGetValue("CLC:id", out CLCid))
+                if (filtered.ContainsKey(way))
                 {
-                    //create container contains CLC:id & role in the relation
-                    Dictionary<string, string> relationData = new Dictionary<string, string>();
-                    relationData.Add("CLC:id", CLCid);
-                    if (sp.Tags.TryGetValue(OSMKeys.Role, out role))
+                    foreach (var rel in relationsByUsedWays[way.ID])
                     {
-                        relationData.Add(OSMKeys.Role, role);
+                        foreach (var member in rel.Members)
+                        {
+                            if (member.Reference == way.ID) member.Reference = filtered[way];
+                        }
                     }
-
-                    if (filtered.ContainsKey(sp))
-                    {
-                        filtered[sp].Add(relationData);
-                    }
-                    else
-                    {
-                        var list = new List<Dictionary<string, string>>();
-                        list.Add(relationData);
-                        filtered.Add(sp, list);
-                        sp.Tags.Clear();
-                    }
+                    unneccesaryWays.Add(way);
                 }
-                //at the end will add to result
                 else
                 {
-                    if (!filtered.ContainsKey(sp))
-                        filtered.Add(sp, new List<Dictionary<string, string>>());
+                    filtered.Add(way, way.ID);
                 }
             }
+            filtered = null;
+            splittedWays.RemoveAll(x => unneccesaryWays.Contains(x));
+            unneccesaryWays = null;
 
-            endTime = DateTime.Now;
-            workTime = endTime.Subtract(startTime);
-            Log.getInstance().writeLine("Filter time: " + workTime.TotalMilliseconds +"ms");
-            //end remove duplicates
-            
-
-            //match newWays to filtered ways, adding to relation
-            startTime = DateTime.Now;
-
-            Dictionary<string, OSMRelation> tmpNewRelations = newRelations.ToDictionary(x => x.Tags["CLC:id"]);
+            Log.getInstance().writeLine("Merge Overlaping ways: complete");
 
 
-            foreach (var way in filtered)
-            {
-                string relationKey;
-                foreach(var r in way.Value){
-                    OSMRelation.Member tmpMember = new OSMRelation.Member(OSMKeys.WayType,
-                        way.Key.ID, r.TryGetValue(OSMKeys.Role, out role) ? role : string.Empty);
-                
-                    relationKey = r["CLC:id"];
-                    tmpNewRelations[relationKey].Members.Add(tmpMember);
-                }
-            }
-
-            /*string role;
-            foreach (var way in filtered)
-            {
-                OSMRelation.Member tmpMember = new OSMRelation.Member(OSMKeys.WayType,
-                            way.ID, way.Tags.TryGetValue(OSMKeys.Role, out role) ? role : string.Empty);
-                //string relationKey;
-                if (way.Tags.TryGetValue("CLC:id", out relationKey))
-                {
-                    tmpNewRelations[relationKey].Members.Add(tmpMember);
-                }
-            }*/
-            endTime = DateTime.Now;
-            workTime = endTime.Subtract(startTime);
-            Log.getInstance().writeLine("Match time: " + workTime.TotalMilliseconds);
-
-            //flush ways, keep filtered ways
-            newWays = new List<OSMWay>(filtered.Keys);
-
-            //clear tags of ways
-            foreach (OSMWay way in newWays)
-            {
-                way.Tags.Clear();
-            }
+            //remove empty relations
+            newRelations = allRelationsById.Values.Where(x => x.Members.Count > 0).ToList();
+            newWays = splittedWays;
         }
 
         protected static ICollection<OSMRelation> GetRelations(IEnumerable<OSMWay> ways)
@@ -159,15 +157,35 @@ namespace clcSimplifier
                 string CLC_ID;
                 if (way.Tags.TryGetValue("CLC:id", out CLC_ID))
                 {
-                    if (!result.ContainsKey(CLC_ID)){
+                    if (!result.ContainsKey(CLC_ID))
+                    {
                         OSMRelation tmprelation = new OSMRelation();
                         tmprelation.Tags = new Dictionary<string, string>(way.Tags);
-                        tmprelation.Tags.Add("type", "multipolygon");                        
+                        tmprelation.Tags.Add("type", "multipolygon");
                         result.Add(CLC_ID, tmprelation);
                     }
                 }
             }
             return result.Values;
+        }
+
+        protected static Dictionary<int, List<OSMRelation>> GetRelationsByUsedWays(IEnumerable<OSMRelation> relations, IEnumerable<OSMWay> ways)
+        {
+            Dictionary<int, List<OSMRelation>> result = new Dictionary<int, List<OSMRelation>>();
+            //init
+            foreach (var w in ways)
+            {
+                result.Add(w.ID, new List<OSMRelation>());
+            }
+            //select
+            foreach (var rel in relations)
+            {
+                foreach (var m in rel.Members)
+                {
+                    result[m.Reference].Add(rel);
+                }
+            }
+            return result;
         }
     }
 }
