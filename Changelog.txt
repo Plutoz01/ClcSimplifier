@@ -1,5 +1,10 @@
-﻿v0.1.8
+﻿v0.2.0
+	- Bugfix: Sometimes there were overlapping ways in the output
+v0.1.9
+	- Relations have only one member converted back to way with tags
+v0.1.8
 	- Bugfix: inner/outer roles corrected
+	- Bugfix: Lines without tags and relations added to the proper relations
 v0.1.7
 	- Bugfix: Untagged lines already added to output
 	- inner/outer roles disabled

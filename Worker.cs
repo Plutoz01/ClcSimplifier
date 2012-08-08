@@ -73,7 +73,7 @@ namespace clcSimplifier
                 }
                 if (!isContains)
                 {
-                    parentRelation.Members.Add(new OSMRelation.Member(OSMKeys.WayType,way.ID,"outer"));
+                    parentRelation.Members.Add(new OSMRelation.Member(OSMKeys.WayType,way.ID,OSMKeys.RoleOuter));
                 }
             }
             Log.getInstance().writeLine("Adding ways to relations: complete");
@@ -83,8 +83,8 @@ namespace clcSimplifier
 
             var intersections = OSMWay.GetIntersections(ways);
             var splittedWays = new List<OSMWay>();
-            foreach (var currentWay in ways)
-            //Parallel.ForEach(ways, parallelOptions, currentWay =>
+            //foreach (var currentWay in ways)
+            Parallel.ForEach(ways, parallelOptions, currentWay =>
             {
                 var partialWays = currentWay.SplitN(intersections);
                 lock (splittedWays)
@@ -107,8 +107,8 @@ namespace clcSimplifier
                         rel.Members.Remove(oldMember);
                     }
                 }
-                //});            
-            }
+                });            
+            //}
             intersections = null;
             Log.getInstance().writeLine("Way splitting: complete");
 
@@ -146,7 +146,19 @@ namespace clcSimplifier
 
             //remove empty relations
             newRelations = allRelationsById.Values.Where(x => x.Members.Count > 0).ToList();
-            newWays = splittedWays;
+            Log.getInstance().writeLine("Remove empty relations: complete");
+
+            //convert back 1 member relations to ways
+            var oneMemberRelations = newRelations.Where(r => r.Members.Count == 1 && r.Members.First().Role.Equals(OSMKeys.RoleOuter));
+            waysById = splittedWays.ToDictionary(x => x.ID);
+            foreach (var rel in oneMemberRelations)
+            {
+                waysById[rel.Members.First().Reference].Tags = rel.Tags;
+            }
+            newRelations = newRelations.Except(oneMemberRelations).ToList();
+            Log.getInstance().writeLine("Convert 1 member relations to simple way (all: "+oneMemberRelations.Count()+"): complete");
+
+            newWays = waysById.Values;
         }
 
         protected static ICollection<OSMRelation> GetRelations(IEnumerable<OSMWay> ways)
